@@ -157,6 +157,7 @@ export const Scanning: React.FC<ScanningProps> = ({ uploadedImage, targetLanguag
 
           if (isMenu) {
             imageUrl = `https://tse2.mm.bing.net/th?q=${encodeURIComponent(searchQuery)}&w=400&h=400&c=7&rs=1&p=0`;
+
           } else {
             // Reconstruct the Base64 Data URL for the DB
             imageUrl = `data:image/jpeg;base64,${base64Image}`;

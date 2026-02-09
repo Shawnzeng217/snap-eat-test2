@@ -128,6 +128,9 @@ export const Results: React.FC<ResultsProps> = ({ uploadedImage, results, savedI
                                 className="size-full transition-transform duration-700"
                                 style={getThumbnailStyle(dish)}
                                 loading="lazy"
+                                onError={(e) => {
+                                    (e.target as HTMLImageElement).src = `https://loremflickr.com/400/400/food`;
+                                }}
                             />
                             {dish.spiceLevel && dish.spiceLevel !== 'None' && (
                                 <div className="absolute bottom-1 right-1 bg-white/90 dark:bg-black/80 backdrop-blur-sm rounded-md px-1 py-0.5 text-[10px] shadow-sm">
@@ -182,6 +185,9 @@ export const Results: React.FC<ResultsProps> = ({ uploadedImage, results, savedI
                         src={displayImage}
                         alt={dish.name}
                         className="w-full h-auto object-contain max-h-[500px] block mx-auto"
+                        onError={(e) => {
+                            (e.target as HTMLImageElement).src = `https://loremflickr.com/400/400/food`;
+                        }}
                     />
 
                     {/* Spotlight for single Dish Scan */}
@@ -368,6 +374,9 @@ export const Results: React.FC<ResultsProps> = ({ uploadedImage, results, savedI
                                     src={selectedItem.image}
                                     alt={selectedItem.name}
                                     className="w-full h-full object-cover animate-[fadeIn_0.3s_ease-in]"
+                                    onError={(e) => {
+                                        (e.target as HTMLImageElement).src = `https://loremflickr.com/400/400/food`;
+                                    }}
                                 />
                             ) : (
                                 // Scan/Menu Mode with Smart Zoom

@@ -53,8 +53,8 @@ export const History: React.FC<HistoryProps> = ({ historyItems, savedItems, acti
                     <button
                         onClick={() => onTabChange('scans')}
                         className={`pb-3 text-sm font-bold transition-all relative ${activeTab === 'scans'
-                                ? 'text-primary'
-                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                            ? 'text-primary'
+                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                             }`}
                     >
                         History Scan
@@ -65,8 +65,8 @@ export const History: React.FC<HistoryProps> = ({ historyItems, savedItems, acti
                     <button
                         onClick={() => onTabChange('saved')}
                         className={`pb-3 text-sm font-bold transition-all relative ${activeTab === 'saved'
-                                ? 'text-primary'
-                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                            ? 'text-primary'
+                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                             }`}
                     >
                         Saved
@@ -100,12 +100,16 @@ export const History: React.FC<HistoryProps> = ({ historyItems, savedItems, acti
                                 onClick={() => setExpandedDish(item)}
                                 className="flex gap-4 p-3 bg-white dark:bg-surface-dark rounded-xl shadow-sm border border-gray-100 dark:border-gray-800/60 relative overflow-hidden group cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
                             >
-                                {/* Image Thumb */}
+                                {/* Image Thumb - Refactored to img for onError support */}
                                 <div className="w-20 h-20 rounded-lg bg-gray-200 shrink-0 overflow-hidden relative">
-                                    <div
-                                        className="absolute inset-0 bg-cover bg-center"
-                                        style={{ backgroundImage: `url('${item.image || 'https://via.placeholder.com/150'}')` }}
-                                    ></div>
+                                    <img
+                                        src={item.image || 'https://via.placeholder.com/150'}
+                                        alt={item.name}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                            (e.target as HTMLImageElement).src = `https://loremflickr.com/400/400/food`;
+                                        }}
+                                    />
                                 </div>
 
                                 <div className="flex-1 flex flex-col justify-between py-0.5">
@@ -164,8 +168,15 @@ export const History: React.FC<HistoryProps> = ({ historyItems, savedItems, acti
                         </button>
 
                         {/* Image */}
-                        <div className="relative h-56 w-full bg-gray-200">
-                            <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${expandedDish.image || 'https://via.placeholder.com/400'}')` }}></div>
+                        <div className="relative h-56 w-full bg-gray-200 overflow-hidden">
+                            <img
+                                src={expandedDish.image || 'https://via.placeholder.com/400'}
+                                alt={expandedDish.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                    (e.target as HTMLImageElement).src = `https://loremflickr.com/400/400/food`;
+                                }}
+                            />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-60"></div>
                         </div>
 
