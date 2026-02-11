@@ -225,8 +225,7 @@ const App: React.FC = () => {
       console.error("Logout error, forcing local cleanup:", error);
     } finally {
       // Force local state cleanup even if network request fails
-      setSession(null);
-      setSession(null);
+
       setHistory([]);
       setSavedItems([]);
       setUserProfile(null);

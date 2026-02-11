@@ -21,7 +21,12 @@ export const Results: React.FC<ResultsProps> = ({ uploadedImage, results, savedI
     // State for Detail Modal Toggle (Only relevant for Menu Mode)
     // State for Detail Modal Toggle (Only relevant for Menu Mode)
     const [modalViewMode, setModalViewMode] = useState<'food' | 'scan'>('food');
-    const [modalImageDims, setModalImageDims] = useState({ w: 0, h: 0 });
+
+
+    // ... (rest of component logic) ...
+
+
+
 
     // Prevent body scroll when modal is open
     React.useEffect(() => {
@@ -47,7 +52,7 @@ export const Results: React.FC<ResultsProps> = ({ uploadedImage, results, savedI
         return (
             <div className="flex items-center gap-0.5" aria-label={`Spice level: ${level}`}>
                 {[...Array(count)].map((_, i) => (
-                    <span key={i} className="text-[14px] leading-none">🌶️</span>
+                    <span key={i} className="text-[14px] leading-none"></span>
                 ))}
             </div>
         );
@@ -85,38 +90,6 @@ export const Results: React.FC<ResultsProps> = ({ uploadedImage, results, savedI
             };
         }
         return { objectFit: 'cover' };
-    };
-
-    // Helper for Smart Zoom on Menu
-    const getSmartZoomStyle = (dish: Dish): React.CSSProperties => {
-        if (!dish.boundingBox) return {};
-
-        const [ymin, xmin, ymax, xmax] = dish.boundingBox;
-        // Calculate center percentage (0-100%)
-        const cx = (xmin + xmax) / 2 / 10;
-        const cy = (ymin + ymax) / 2 / 10;
-
-        // Calculate dimensions of the bounding box as percentage (0-100)
-        // Correct way is: (xmax - xmin)/1000 * 100 = (xmax - xmin)/10
-        const wPct = (xmax - xmin) / 10;
-        const hPct = (ymax - ymin) / 10;
-
-        // Target: We want the box to take up roughly ~60% of the viewport width/height
-        // Scale = TargetCoverage / ActualCoverage
-        // E.g. If box is 10% wide, scale = 60/10 = 6x zoom (Too high? Clamp it)
-        const scaleW = 60 / Math.max(wPct, 1);
-        const scaleH = 40 / Math.max(hPct, 1); // 40% height because we have text below
-
-        // Use the smaller scale so it fits both dimensions
-        const rawScale = Math.min(scaleW, scaleH);
-
-        // Clamp scale: Minimum 1.5x (to show context), Maximum 4.0x (to avoid pixelation)
-        const finalScale = Math.min(Math.max(rawScale, 1.5), 4.0);
-
-        return {
-            transformOrigin: `${cx}% ${cy}%`,
-            transform: `scale(${finalScale.toFixed(2)})`,
-        };
     };
 
     // --- Sub-Components ---
@@ -385,9 +358,11 @@ export const Results: React.FC<ResultsProps> = ({ uploadedImage, results, savedI
                             </button>
                         </div>
 
+                        {/* Image Area - STRICT COORDINATE SYSTEM FIX */}
                         {/* Image Area */}
-                        <div className="relative w-full h-72 bg-gray-900 shrink-0 overflow-hidden">
-                            {modalViewMode === 'food' ? (
+                        <div className="relative w-full h-72 bg-gray-900 shrink-0 overflow-hidden flex items-center justify-center group">
+                            {/* Food Mode (Bing Image) */}
+                            {modalViewMode === 'food' && (
                                 <img
                                     src={selectedItem.image}
                                     alt={selectedItem.name}
@@ -396,54 +371,25 @@ export const Results: React.FC<ResultsProps> = ({ uploadedImage, results, savedI
                                         (e.target as HTMLImageElement).src = `https://loremflickr.com/400/400/food`;
                                     }}
                                 />
-                            ) : (
-                                // Scan/Menu Mode with Smart Zoom
-                                <div
-                                    className="relative w-full h-full transition-transform duration-500 ease-out"
-                                    style={getSmartZoomStyle(selectedItem)}
-                                >
-                                    <img
-                                        src={uploadedImage || ''}
-                                        alt="Scan Context"
-                                        className="w-full h-full object-contain bg-black/50"
-                                        onLoad={(e) => {
-                                            const img = e.target as HTMLImageElement;
-                                            // Store natural dimensions on the element dataset for easier access in State if needed, 
-                                            // but specifically for the SVG we need a re-render.
-                                            // Using a simpler approach: Force render the SVG with correct aspect ratio.
-                                            // Since we are inside a map or conditional, we'll iterate the SVG logic.
-                                            img.dataset.naturalWidth = img.naturalWidth.toString();
-                                            img.dataset.naturalHeight = img.naturalHeight.toString();
-                                            // Trigger a re-render to update SVG viewBox
-                                            setModalImageDims({ w: img.naturalWidth, h: img.naturalHeight });
-                                        }}
-                                    />
-                                    {/* Spotlight Bounding Box - SVG Implementation for Perfect Alignment */}
-                                    {selectedItem.boundingBox && modalImageDims.w > 0 && (
-                                        <svg
-                                            className="absolute inset-0 w-full h-full pointer-events-none"
-                                            viewBox={`0 0 ${modalImageDims.w} ${modalImageDims.h}`}
-                                            preserveAspectRatio="xMidYMid meet"
-                                        >
-                                            <rect
-                                                x={selectedItem.boundingBox[1] * (modalImageDims.w / 1000)}
-                                                y={selectedItem.boundingBox[0] * (modalImageDims.h / 1000)}
-                                                width={(selectedItem.boundingBox[3] - selectedItem.boundingBox[1]) * (modalImageDims.w / 1000)}
-                                                height={(selectedItem.boundingBox[2] - selectedItem.boundingBox[0]) * (modalImageDims.h / 1000)}
-                                                fill="none"
-                                                stroke="#e65000"
-                                                strokeWidth={Math.max(2, modalImageDims.w / 200)} // Dynamic stroke width based on image size
-                                                className="animate-[pulse_2s_infinite] shadow-[0_0_15px_rgba(230,80,0,0.5)]"
-                                                style={{ filter: "drop-shadow(0 0 4px rgba(230,80,0,0.5))" }}
-                                            />
-                                        </svg>
-                                    )}
+                            )}
+
+                            {/* Scan/Menu Mode (Clean Full View - No Highlight/Positioning) */}
+                            {modalViewMode === 'scan' && (
+                                <div className="relative w-full h-full flex items-center justify-center bg-black/5 overflow-hidden p-6">
+                                    {/* Wrapper to constrain image naturally */}
+                                    <div className="relative inline-block max-w-full max-h-full shadow-2xl rounded-sm overflow-hidden bg-white dark:bg-black">
+                                        <img
+                                            src={uploadedImage || ''}
+                                            alt="Menu Context"
+                                            className="max-w-full max-h-full object-contain block opacity-100" // Opacity 100 for clean view
+                                        />
+                                    </div>
                                 </div>
                             )}
-                            {/* Gradient Overlay for Text Readability at Bottom of Image */}
+
+                            {/* Gradient Overlay */}
                             <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none"></div>
                         </div>
-
                         {/* Content Scrollable */}
                         <div className="flex-1 overflow-y-auto bg-white dark:bg-[#1a1a1a]">
                             <div className="p-6">
@@ -473,7 +419,7 @@ export const Results: React.FC<ResultsProps> = ({ uploadedImage, results, savedI
                                     )}
                                     {selectedItem.spiceLevel && selectedItem.spiceLevel !== 'None' && (
                                         <span className="px-3 py-1 rounded-full bg-orange-50 dark:bg-orange-900/20 text-xs font-bold text-orange-700 dark:text-orange-300 flex items-center gap-1">
-                                            <span>🌶️</span> {selectedItem.spiceLevel}
+                                            <span></span> {selectedItem.spiceLevel}
                                         </span>
                                     )}
                                     {selectedItem.tags.map(tag => (

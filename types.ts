@@ -28,6 +28,7 @@ export interface Dish {
   spiceLevel: 'None' | 'Mild' | 'Medium' | 'Hot';
   category: string;
   boundingBox?: number[]; // [ymin, xmin, ymax, xmax] 0-1000 scale
+  isOcrRefined?: boolean;
   isMenu?: boolean; // New flag to indicate if this came from a menu scan
   created_at?: string;
 }

@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
+import Tesseract from 'tesseract.js';
 import { Dish, Language, ScanType } from '../types';
 
 interface ScanningProps {
@@ -8,7 +9,7 @@ interface ScanningProps {
   targetLanguage: Language;
   scanType: ScanType;
   onCancel: () => void;
-  onComplete: (results: Dish[]) => void;
+  onComplete: (results: Dish[], isMenu: boolean) => void;
 }
 
 export const Scanning: React.FC<ScanningProps> = ({ uploadedImage, targetLanguage, scanType, onCancel, onComplete }) => {
@@ -37,7 +38,7 @@ export const Scanning: React.FC<ScanningProps> = ({ uploadedImage, targetLanguag
 
   useEffect(() => {
     let isMounted = true;
-    let progressInterval: ReturnType<typeof setInterval>;
+    let progressInterval: NodeJS.Timeout;
 
     const analyzeImage = async () => {
       if (!uploadedImage) return;
@@ -54,11 +55,15 @@ export const Scanning: React.FC<ScanningProps> = ({ uploadedImage, targetLanguag
           });
         }, 100);
 
+        setProgress(10);
+        setStatusText("Analyzing image & text...");
+
         // 1. Prepare Image
         const base64Image = await urlToBase64(uploadedImage);
 
         // 2. Initialize Gemini
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY || process.env.API_KEY || "" });
+        // Note: Using import.meta.env.VITE_API_KEY is preferred in Vite, fallbacks for older setup
 
         // 3. Define Schema (Updated for Root Object with isMenu)
         const responseSchema = {
@@ -87,127 +92,186 @@ export const Scanning: React.FC<ScanningProps> = ({ uploadedImage, targetLanguag
           required: ["isMenu", "dishes"]
         };
 
-        // 4. Update Status based on Type
-        if (isMounted) {
-          setStatusText(
-            scanType === 'menu'
-              ? "Extracting menu items..."
-              : "Identifying ingredients..."
-          );
-        }
-
         // 5. Construct Prompt with Accuracy Optimization
-        // Critical optimization: Tell AI to use Knowledge Base for menus, and Visuals for dishes.
         const accuracyPrompt = scanType === 'menu'
-          ? "ACCURACY RULE: Since this is a menu (text), you CANNOT see the food. You MUST infer 'spiceLevel', 'allergens', and 'tags' solely based on your CULINARY KNOWLEDGE of the dish name and traditional preparation methods. Do not guess based on visual text features. IMPORTANT: Use the menu section headers to infer the full dish name (e.g. if 'Soft Shell Crab' is listed under 'Sushi Rolls', the dish name is 'Soft Shell Crab Sushi Roll')."
-          : "ACCURACY RULE: Infer 'spiceLevel' and 'allergens' based on VISUAL INSPECTION of the food (e.g., redness, visible chilies, ingredients) combined with dish identification.";
+          ? "ACCURACY RULE: Since this is a menu (text), you CANNOT see the food. You MUST infer 'spiceLevel', 'allergens', and 'tags' solely based on your CULINARY KNOWLEDGE of the dish name. Do not guess visual features."
+          : "ACCURACY RULE: Infer 'spiceLevel' and 'allergens' based on VISUAL INSPECTION of the food.";
 
-        const response = await ai.models.generateContent({
+        // --- PARALLEL EXECUTION: AI + MANDATED OCR ---
+
+        // A. Start Gemini Analysis (Focus on DISH IDENTIFICATION)
+        const geminiPromise = ai.models.generateContent({
           model: 'gemini-2.5-flash',
           contents: {
             parts: [
               { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
               {
-                text: `Analyze this image. The user indicated this is a "${scanType}".
-                                 First, confirm if it is a "Menu" (mostly text) or "Food" (photo of dishes).
+                text: `Analyze this menu image. 
                                  Identify all distinct dishes. 
                                  Translate details to ${targetLanguage}.
-                                 Return accurate bounding boxes (0-1000 scale) for where each dish is located in the image.
-                                 If it is a menu, identify the text location of the dish name.
-
-                                 ${accuracyPrompt}
                                  
-                                 IMPORTANT: Return PURE JSON adhering to the schema.` }
+                                 IMPORTANT: Return PURE JSON adhering to the schema.
+                                 - 'originalName': The exact text as it appears on the menu (e.g., "宫保鸡丁").
+                                 - 'description': Brief English description.
+                                 - 'price': Price if available.
+                                 - 'spiceLevel': 'None', 'Mild', 'Medium', 'Hot'.
+                                 - 'category': e.g., 'Appetizer', 'Main', 'Dessert'.
+                                 - 'tags': Array of strings like "Spicy", "Vegetarian".
+                                 - 'boundingBox': [0,0,0,0] (Placeholder, we will use OCR for location).
+                                 
+                                 ${accuracyPrompt}`
+              }
             ]
           },
           config: {
             responseMimeType: "application/json",
-            responseSchema: responseSchema,
-            systemInstruction: "You are an expert food critic and nutritionist."
+            responseSchema: responseSchema
           }
         });
 
-        // 6. Parse Result
-        let jsonText = response.text || "{}";
+        // B. Start OCR (MANDATORY for Commercial-Grade Accuracy)
+        const ocrPromise = Tesseract.recognize(
+          uploadedImage,
+          'chi_sim+eng',
+          { logger: (m: any) => { } }
+        ).catch((e: any) => {
+          console.error("OCR Failed:", e);
+          return null;
+        });
+
+        // Wait for both results
+        const [geminiResponse, ocrResult] = await Promise.all([geminiPromise, ocrPromise]);
+
+        // 6. Parse Gemini Result
+        let jsonText = geminiResponse.text || "{}";
         if (jsonText.startsWith('```')) {
           jsonText = jsonText.replace(/^```json\s?/, '').replace(/^```\s?/, '').replace(/```$/, '');
         }
 
         const parsedData = JSON.parse(jsonText);
+        let dishesList = parsedData.dishes || [];
         const isMenu = parsedData.isMenu || false;
-        const dishesList = parsedData.dishes || [];
+
+        // --- COMMERCIAL-GRADE OCR MATCHING LOGIC ---
+        if (isMounted) setStatusText("Refining locations...");
+
+        if (ocrResult && ocrResult.data && ocrResult.data.lines) {
+
+          const img = new Image();
+          img.src = uploadedImage;
+          await new Promise(r => img.onload = r);
+          const imgW = img.naturalWidth;
+          const imgH = img.naturalHeight;
+
+          dishesList = dishesList.map((dish: any) => {
+            const normName = dish.originalName.replace(/\s+/g, '').toLowerCase(); // e.g. "kungpaochicken"
+
+            // Find BEST matching line(s)
+            let bestMatch: any = null;
+            let bestScore = 0;
+
+            ocrResult.data.lines.forEach((line: any) => {
+              const normLine = line.text.replace(/\s+/g, '').toLowerCase();
+
+              // 1. Exact Substring Match (High Confidence)
+              if (normLine.includes(normName) || normName.includes(normLine)) {
+                const matchLen = Math.min(normLine.length, normName.length);
+                const maxLen = Math.max(normLine.length, normName.length);
+                let score = matchLen / maxLen;
+
+                // Boost score if the lengths are very similar (it's the WHOLE line)
+                if (Math.abs(normLine.length - normName.length) < 3) score += 0.2;
+
+                if (score > bestScore) {
+                  bestScore = score;
+                  bestMatch = line;
+                }
+              }
+            });
+
+            if (bestMatch && bestScore > 0.4) {
+              const { bbox } = bestMatch; // { x0, y0, x1, y1 }
+
+              return {
+                ...dish,
+                isOcrRefined: true,
+                boundingBox: [
+                  (bbox.y0 / imgH) * 1000,
+                  (bbox.x0 / imgW) * 1000,
+                  (bbox.y1 / imgH) * 1000,
+                  (bbox.x1 / imgW) * 1000
+                ]
+              };
+            }
+
+            return { ...dish };
+          });
+        }
 
         // 7. Process dishes & Preload Images
         if (isMounted) {
-          setProgress(85);
-          setStatusText(isMenu ? "Finding food photos..." : "Finalizing details...");
-        }
+          const processedDishes = await Promise.all(dishesList.map(async (dish: any, index: number) => {
+            // SWITCH TO SEARCH: Use Bing Thumbnail API (Hotlinking)
+            // This searches the internet for real photos which is faster (instant) and more realistic than AI generation.
+            // We combine Original Name + English Name + "Food" for best accuracy.
+            const searchQuery = `${dish.originalName || ''} ${dish.englishName || dish.name} food dish`.trim();
 
-        const processedDishes: Dish[] = dishesList.map((d: any, index: number) => {
-          // SWITCH TO SEARCH: Use Bing Thumbnail API (Hotlinking)
-          // This searches the internet for real photos which is faster (instant) and more realistic than AI generation.
-          // We combine Original Name + English Name + "Food" for best accuracy.
-          const searchQuery = `${d.originalName || ''} ${d.englishName || d.name} food dish`.trim();
+            let imageUrl;
 
-          // c=7 is smart crop, w/h sets dimensions, rs=1 resizes
-          // LOGIC UPDATE:
-          // 1. For MENUS: Use Bing Image Search (persistent URL).
-          // 2. For DISHES: Use the ORIGINAL captured photo. To ensure persistence in Supabase without Storage, we use the Base64 data string.
-          let imageUrl;
+            // For menus, try to find an image. For identified food photos, use the source.
+            if (isMenu || scanType === 'menu') {
+              imageUrl = `https://tse2.mm.bing.net/th?q=${encodeURIComponent(searchQuery)}&w=400&h=400&c=7&rs=1&p=0`;
+            } else {
+              // Reconstruct the Base64 Data URL for the DB if it's a food scan
+              imageUrl = `data:image/jpeg;base64,${base64Image}`;
+            }
 
-          if (isMenu) {
-            imageUrl = `https://tse2.mm.bing.net/th?q=${encodeURIComponent(searchQuery)}&w=400&h=400&c=7&rs=1&p=0`;
+            return {
+              ...dish,
+              id: Date.now().toString() + index,
+              image: imageUrl,
+              isMenu: isMenu
+            };
+          }));
 
-          } else {
-            // Reconstruct the Base64 Data URL for the DB
-            imageUrl = `data:image/jpeg;base64,${base64Image}`;
+          // Preload images
+          if ((isMenu || scanType === 'menu') && processedDishes.length > 0) {
+            const imagePromises = processedDishes.map((dish: any) => {
+              return new Promise<void>((resolve) => {
+                if (!dish.image) { resolve(); return; }
+                const img = new Image();
+                img.onload = () => resolve();
+                img.onerror = () => resolve();
+                img.src = dish.image;
+              });
+            });
+            // Max wait 3s
+            const timeoutPromise = new Promise<void>(resolve => setTimeout(resolve, 3000));
+            await Promise.race([Promise.all(imagePromises), timeoutPromise]);
           }
 
-          return {
-            ...d,
-            id: Date.now().toString() + index,
-            image: imageUrl,
-            isMenu: isMenu
-          };
-        });
-
-        // IMPORTANT: Preload images before completing to avoid "pop-in" on results page
-        // Only necessary if we generated new URLs (Menu mode)
-        if (isMenu && processedDishes.length > 0) {
-          const imagePromises = processedDishes.map(dish => {
-            return new Promise<void>((resolve) => {
-              if (!dish.image) {
-                resolve();
-                return;
-              }
-              const img = new Image();
-              img.onload = () => resolve();
-              img.onerror = () => resolve(); // Resolve anyway so we don't block
-              img.src = dish.image;
-            });
-          });
-
-          // Wait for all images to load OR a max timeout of 3 seconds (Search is faster than AI, so we lower timeout)
-          const timeoutPromise = new Promise<void>(resolve => setTimeout(resolve, 3000));
-          await Promise.race([Promise.all(imagePromises), timeoutPromise]);
+          if (isMounted) {
+            setProgress(100);
+            setTimeout(() => {
+              if (isMounted) onComplete(processedDishes as Dish[], isMenu || (scanType === 'menu')); // Fix types
+            }, 300);
+          }
         }
 
-        clearInterval(progressInterval);
-        if (isMounted) setProgress(100);
-
-        // 8. Complete
-        setTimeout(() => {
-          if (isMounted) onComplete(processedDishes);
-        }, 300);
-
-      } catch (error) {
-        console.error("AI Error:", error);
-        if (progressInterval) clearInterval(progressInterval);
+      } catch (error: any) {
+        console.error("AI/OCR Error:", error);
         if (isMounted) {
-          setStatusText("Error scanning. Try again.");
+          if (error.message?.includes('429') || error.message?.includes('Quota') || error.status === 'RESOURCE_EXHAUSTED') {
+            setStatusText("Gemini API Quota Exceeded. Please try again later.");
+            setTimeout(onCancel, 5000);
+          } else {
+            setStatusText("Error scanning. Try again.");
+            setTimeout(onCancel, 3000);
+          }
           setProgress(0);
-          setTimeout(onCancel, 3000);
         }
+      } finally {
+        if (progressInterval!) clearInterval(progressInterval);
       }
     };
 
@@ -215,9 +279,9 @@ export const Scanning: React.FC<ScanningProps> = ({ uploadedImage, targetLanguag
 
     return () => {
       isMounted = false;
-      if (progressInterval) clearInterval(progressInterval);
+      if (progressInterval!) clearInterval(progressInterval);
     };
-  }, [uploadedImage, targetLanguage, scanType, onComplete, onCancel]);
+  }, [uploadedImage, targetLanguage, scanType, onComplete, onCancel]); // useEffect dependencies
 
   return (
     <div className="relative flex h-full w-full flex-col justify-between overflow-hidden bg-background-light dark:bg-background-dark">
@@ -278,12 +342,12 @@ export const Scanning: React.FC<ScanningProps> = ({ uploadedImage, targetLanguag
       </div>
 
       <style>{`
-        @keyframes scan {
-            0% { top: 10%; opacity: 0; }
-            50% { opacity: 1; }
-            100% { top: 90%; opacity: 0; }
-        }
-      `}</style>
+          @keyframes scan {
+              0% { top: 10%; opacity: 0; }
+              50% { opacity: 1; }
+              100% { top: 90%; opacity: 0; }
+          }
+        `}</style>
     </div>
   );
 };

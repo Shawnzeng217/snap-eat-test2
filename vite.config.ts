@@ -12,6 +12,10 @@ export default defineConfig(({ mode }) => {
     define: {
       'process.env.API_KEY': JSON.stringify(env.API_KEY)
     },
+    server: {
+      port: 3000,
+      strictPort: false, // try next available port if 3000 includes used
+    },
     build: {
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
