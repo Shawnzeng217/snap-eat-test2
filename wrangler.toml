@@ -1,0 +1,8 @@
+name = "snap-and-eat"
+pages_build_output_dir = "dist"
+
+[vars]
+# Note: Production secrets should be set in the Cloudflare Dashboard
+VITE_SUPABASE_URL = ""
+VITE_SUPABASE_ANON_KEY = ""
+VITE_API_KEY = ""
